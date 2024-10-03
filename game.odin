@@ -234,6 +234,7 @@ game_render_score :: proc() {
 }
 
 game_init :: proc() {
+	renderer_init(170,100)
 	renderer.screenTexture = rl.LoadRenderTexture(renderer.width, renderer.height)
 }
 

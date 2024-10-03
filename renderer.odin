@@ -17,6 +17,7 @@ Renderer :: struct {
 	screenTexture: rl.RenderTexture2D,
 	depthBuffer:   [dynamic]f32,
 	depthFipped:   bool,
+	depthTest:     bool,
 	commands:      [dynamic]TriRenderCmd,
 }
 
@@ -75,9 +76,18 @@ TriRenderCmd :: struct {
 }
 
 
+render_test_depth :: proc "contextless" (p: vec3, write: bool, less: bool) -> (res: bool) {
+	idx := i32(p.y) * renderer.width + i32(p.x)
+	if idx < 0 || idx >= auto_cast len(renderer.depthBuffer) {
+		return false
+	}
+	d := renderer.depthBuffer[idx]
+	res = (p.z < d) if less else (p.z > d)
+	if res && write {
+		renderer.depthBuffer[idx] = p.z
+	}
 
-render_test_depth :: proc(p:vec3, write:bool) -> f32 {
-	return renderer.depthBuffer[i32(p.y) * renderer.width + i32(p.x) ]
+	return
 }
 
 mesh_triangle_count :: proc(mesh: ^Mesh) -> u32 {
@@ -87,6 +97,14 @@ mesh_triangle_count :: proc(mesh: ^Mesh) -> u32 {
 renderer := Renderer {
 	width  = 170,
 	height = 100,
+}
+
+renderer_init :: proc(width, height: i32) {
+	renderer.width       = width
+	renderer.height      = height
+	renderer.depthTest   = false
+	renderer.depthFipped = true
+	renderer.depthBuffer = make_dynamic_array_len([dynamic]f32, width * height)
 }
 
 mesh_render :: proc(mesh: ^Mesh, model: ^mat44, view: ^mat44, proj: ^mat44, draw: bool = true) {
@@ -350,6 +368,9 @@ tri_render_single_line :: proc(cmd: TriRenderCmd, x1: f32, x2: f32, y: f32) {
 
 		p = vec3{x, y, pBary.x * sv[0].z + pBary.y * sv[1].z + pBary.z * sv[2].z}
 
+		if renderer.depthTest && !render_test_depth(p, true, renderer.depthFipped) {
+			continue
+		}
 		// d := renderer.depthBuffer[x, y]
 		cBary := math_bary_interp(pBary, cmd.colors)
 		c := rl.ColorFromNormalized({cBary.r, cBary.g, cBary.b, 1})
@@ -359,6 +380,7 @@ tri_render_single_line :: proc(cmd: TriRenderCmd, x1: f32, x2: f32, y: f32) {
 
 render_begin :: proc() {
 	clear(&renderer.commands)
+	renderer.depthFipped = !renderer.depthFipped
 }
 
 render_end :: proc() {
@@ -385,7 +407,6 @@ render_debug_ui :: proc(dt: f32, window: bool = true) {
 		btn_text := len(cmds) > 0 ? "Step" : "Running"
 		step_res := ui.button(ctx, btn_text)
 		btn_id := ui.get_id(ctx, btn_text)
-
 
 		if .SUBMIT in step_res ||
 		   (ctx.hover_id == btn_id && rl.IsMouseButtonDown(.LEFT) && rl.IsKeyDown(.LEFT_CONTROL)) {
@@ -424,6 +445,7 @@ render_debug_ui :: proc(dt: f32, window: bool = true) {
 	// }
 
 	if .ACTIVE in ui.header(ctx, "Commands", {.EXPANDED}) {
+		ui.checkbox(ctx, "Depth Test", &renderer.depthTest )
 		ui.layout_row(ctx, {140, -1})
 		// ui.layout_begin_column(ctx)
 

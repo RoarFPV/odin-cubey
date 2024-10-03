@@ -7,7 +7,7 @@ vars:
 tasks:
   clean:
     cmds:
-      - rm {{.NAME}}.exe
+      - rmdir .build/
   debug:
     aliases: [default]
     sources:
@@ -17,6 +17,7 @@ tasks:
       # - ./{{.NAME}}
     cmds:
       # - odin build . -out:"{{.NAME}}"
+      - mkdir -p .build
       - odin build . -debug -out:".build/{{.NAME}}.exe"
       # - nix-shell ../../shell.nix --run 'autoPatchelf {{.NAME}}.elf'
       # - nix-shell ../../shell.nix --run 'patchelf {{.NAME}}.elf --add-needed libvulkan.so.1'

@@ -4,6 +4,8 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+    
+
         {
             "type": "gdb",
             "request": "launch",
@@ -16,9 +18,9 @@
     
         
         {
-            "type": "lldb",
+            "type": "cppvsdbg",
             "request": "launch",
-            "name": "Debug Boxy",
+            "name": "Windows Debug Boxy",
             "program": "${workspaceFolder}/.build/cubey.exe",
             "args": [],
             "cwd": "${workspaceFolder}",
