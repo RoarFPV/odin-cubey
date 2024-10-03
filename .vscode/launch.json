@@ -8,7 +8,7 @@
             "type": "gdb",
             "request": "launch",
             "name": "GDB Launch Program",
-            "target": "${workspaceFolder}/cubey.exe",
+            "target": "${workspaceFolder}/.build/cubey.exe",
             "cwd": "${workspaceFolder}",
             "valuesFormatting": "parseText",
             "preLaunchTask": "Build: Boxy"
@@ -19,7 +19,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Debug Boxy",
-            "program": "${workspaceFolder}/cubey.exe",
+            "program": "${workspaceFolder}/.build/cubey.exe",
             "args": [],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "Build: Boxy"

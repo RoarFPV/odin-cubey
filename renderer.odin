@@ -15,6 +15,8 @@ Renderer :: struct {
 	width:         i32,
 	height:        i32,
 	screenTexture: rl.RenderTexture2D,
+	depthBuffer:   [dynamic]f32,
+	depthFipped:   bool,
 	commands:      [dynamic]TriRenderCmd,
 }
 
@@ -70,6 +72,12 @@ TriRenderCmd :: struct {
 	area:       f32,
 	inv_area:   f32,
 	st:         TriRenderStateData,
+}
+
+
+
+render_test_depth :: proc(p:vec3, write:bool) -> f32 {
+	return renderer.depthBuffer[i32(p.y) * renderer.width + i32(p.x) ]
 }
 
 mesh_triangle_count :: proc(mesh: ^Mesh) -> u32 {
@@ -268,7 +276,7 @@ tri_render :: proc(cmd: TriRenderCmd) {
 
 
 tri_render_scanline :: proc(cmd: TriRenderCmd) {
-	sv := cmd.vertScreen - {0.5,0.5,0}
+	sv := cmd.vertScreen - {0.5, 0.5, 0}
 
 	slice.sort_by(sv[:3], proc(a, b: vec3) -> bool {
 		return a.y < b.y
@@ -342,6 +350,7 @@ tri_render_single_line :: proc(cmd: TriRenderCmd, x1: f32, x2: f32, y: f32) {
 
 		p = vec3{x, y, pBary.x * sv[0].z + pBary.y * sv[1].z + pBary.z * sv[2].z}
 
+		// d := renderer.depthBuffer[x, y]
 		cBary := math_bary_interp(pBary, cmd.colors)
 		c := rl.ColorFromNormalized({cBary.r, cBary.g, cBary.b, 1})
 		rl.DrawPixelV({p.x, p.y}, c)
