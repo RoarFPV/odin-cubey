@@ -107,7 +107,7 @@ remove_entity_from_map :: proc(entities: ^EntityMap, id: u32) {
 remove_entity :: proc(e: ^Entity) {
 }
 
-view_pos := vec3{0, 0, -10}
+view_pos := vec3{0, -0.5, -3}
 rotation := false
 game_update_input :: proc(dt: f32) {
 	if paused {
@@ -234,7 +234,7 @@ game_render_score :: proc() {
 }
 
 game_init :: proc() {
-	renderer_init(170,100)
+	renderer_init(640,400)
 	renderer.screenTexture = rl.LoadRenderTexture(renderer.width, renderer.height)
 }
 
@@ -246,7 +246,7 @@ game_check_end :: proc() {
 game_debug_ui :: proc(dt: f32, window: bool = true) {
 	ctx := &state.mu_ctx
 	if window {
-		if !ui.begin_window(ctx, "Game", {renderer.width + 20, 20, 300, 450}, {.NO_CLOSE}) {
+		if !ui.begin_window(ctx, "Game", {20, 20, 300, 450}, {.NO_CLOSE}) {
 			return
 		}
 	}

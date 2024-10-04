@@ -18,6 +18,7 @@ Renderer :: struct {
 	depthBuffer:   [dynamic]f32,
 	depthFipped:   bool,
 	depthTest:     bool,
+	backfaceCull:  bool,
 	commands:      [dynamic]TriRenderCmd,
 }
 
@@ -67,12 +68,15 @@ TriRenderCmd :: struct {
 	transform:  Transform,
 	verticies:  [3]vec3,
 	vertClip:   [3]vec4,
+	vertCamera: [3]vec3,
 	vertScreen: [3]vec3,
 	indicies:   [3]u16,
 	colors:     [3]vec3,
 	area:       f32,
 	inv_area:   f32,
 	st:         TriRenderStateData,
+	bary:       BaryData,
+	edges:      [3]vec3,
 }
 
 
@@ -100,10 +104,11 @@ renderer := Renderer {
 }
 
 renderer_init :: proc(width, height: i32) {
-	renderer.width       = width
-	renderer.height      = height
-	renderer.depthTest   = false
+	renderer.width = width
+	renderer.height = height
+	renderer.depthTest = true
 	renderer.depthFipped = true
+	renderer.backfaceCull = true
 	renderer.depthBuffer = make_dynamic_array_len([dynamic]f32, width * height)
 }
 
@@ -118,29 +123,45 @@ mesh_render :: proc(mesh: ^Mesh, model: ^mat44, view: ^mat44, proj: ^mat44, draw
 		transform = {mvp, model, view, proj},
 	}
 
-	vp := vec3{auto_cast renderer.width, auto_cast renderer.height, 0} / 2.0
+	vp := vec3{auto_cast renderer.width, auto_cast renderer.height, 2} / 2.0
 
 	for t in 0 ..< triCount {
 		for i in 0 ..< 3 {
 			cmd.indicies[i] = mesh.indicies[t * 3 + i]
-			mv := mesh.verticies[cmd.indicies[i]]
-			cmd.vertClip[i] = {mv.x, mv.y, mv.z, 1}
+			vmv := mesh.verticies[cmd.indicies[i]]
+			cmd.vertClip[i] = {vmv.x, vmv.y, vmv.z, 1}
 
+			cmd.vertCamera[i] = (mv * cmd.vertClip[i]).xyz
+			// TODO: clip vertCamera verticies
 			cmd.vertClip[i] = mvp * cmd.vertClip[i]
+
 			cmd.colors[i] = mesh.colors[cmd.indicies[i]]
 
 			w := cmd.vertClip[i].w
 			cmd.vertScreen[i] = cmd.vertClip[i].xyz
 			cmd.vertScreen[i] /= w
-			// cmd.colors[i] /= w
 
 			cmd.vertScreen[i] = viewport_scale(vp, cmd.vertScreen[i])
 		}
 		cmd.area = math_tri_edge(cmd.vertScreen[0], cmd.vertScreen[1], cmd.vertScreen[2])
 		cmd.inv_area = 1 / cmd.area
+
+		cmd.bary = math_bary_data(cmd.vertScreen)
+		cmd.edges = {
+			cmd.vertScreen[2] - cmd.vertScreen[1],
+			cmd.vertScreen[0] - cmd.vertScreen[2],
+			cmd.vertScreen[1] - cmd.vertScreen[0],
+		}
+
+
 		// if linalg.abs(cmd.area) <= 0.0 {
 		// 	continue
 		// }
+
+		normal := math_tri_normal(cmd.vertCamera)
+		if renderer.backfaceCull && linalg.dot(cmd.vertCamera[0], normal) <= 0 {
+			continue
+		}
 		// assert(cmd.area != 0.0)
 		if draw {
 			// tri_render(cmd)
@@ -155,148 +176,16 @@ mesh_render :: proc(mesh: ^Mesh, model: ^mat44, view: ^mat44, proj: ^mat44, draw
 @(require_results)
 viewport_scale :: proc "contextless" (halfViewport: vec3, v: vec3) -> vec3 {
 	half := halfViewport
-
-	o := v
-	o.x = half.x * v.x + half.x
-	o.y = half.y * -v.y + half.y
-
-	return o
-}
-
-tri_render_stepped :: proc(cmd: ^TriRenderCmd) {
-	sv := cmd.vertScreen
-	st := &cmd.st
-	p := &st.pixel_final
-
-
-	switch cmd.st.step {
-	case .Bounds:
-		st.min = sv[0]
-		st.max = sv[0]
-		for v in 1 ..< 3 {
-			st.max = linalg.max(st.max, sv[v])
-			st.min = linalg.min(st.min, sv[v])
-		}
-		st.pixel_final = st.min
-		st.step = .Bary
-
-		// rl.DrawRectangleLinesEx(
-		// 	{st.min.x, st.min.y, st.max.x - st.min.x, st.max.y - st.min.y},
-		// 	1,
-		// 	rl.RED,
-		// )
-
-		rl.DrawLineV(sv[0].xy, sv[1].xy, rl.RED)
-		rl.DrawLineV(sv[0].xy, sv[2].xy, rl.BLUE)
-	// rl.DrawLineV(sv[0].xy, st.pixel_final.xy, rl.GREEN)
-
-	case .Bary:
-		st.step = .Pixel
-
-
-	case .Pixel:
-		rl.DrawPixelV(st.pixel_final.xy, color(3))
-
-		st.pixel_bary = math_barycentric_coords_edge(sv, st.pixel_final)
-		st.pixel_bary_calc = math_barycentric_coords(sv, st.pixel_final)
-		// st.pixel_final = math_point_from_bary(st.bary, st.pixel_bary)
-
-
-		st.pixel_outside =
-			st.pixel_bary_calc.x < 0 || st.pixel_bary_calc.y < 0 || st.pixel_bary_calc.z < 0
-
-		if !st.pixel_outside {
-			st.pixel_bary /= cmd.area
-
-			c := math_bary_interp(st.pixel_bary, cmd.colors)
-			// st.pixel_color = color(6)
-			st.pixel_color = rl.ColorFromNormalized({c.x, c.y, c.z, 1})
-			st.pixel_color.a = st.pixel_outside ? 10 : 255
-			rl.DrawPixelV(st.pixel_final.xy, st.pixel_color)
-		}
-		st.step = .NextPixel
-
-	case .NextPixel:
-		p.x += 1
-		// next x
-		st.step = .Pixel
-		done :=
-			(st.pixel_was_outside != st.pixel_outside && !st.pixel_was_outside) || p.x >= st.max.x
-
-		st.pixel_was_outside = st.pixel_outside
-
-		if done {
-			p.x = st.min.x
-
-			st.pixel_was_outside = true
-			st.pixel_outside = false
-			if p.y >= st.max.y {
-				st.step = .Complete
-			}
-
-			p.y += 1
-		}
-
-	case .Complete:
-		return
-	}
-}
-
-tri_render :: proc(cmd: TriRenderCmd) {
-	sv := cmd.vertScreen
-
-	min := sv[0]
-	max := sv[0]
-	for v in 1 ..< 3 {
-		max = linalg.max(max, sv[v])
-		min = linalg.min(min, sv[v])
-	}
-
-
-	for y in min.y ..< max.y {
-
-		outside := true
-		for x in min.x ..< max.x {
-
-			p := vec3{x, y, 0}
-
-			pBary := math_barycentric_coords_edge(sv, p)
-
-			is_outside := (pBary.x < 0 || pBary.y < 0 || pBary.z < 0)
-			if is_outside {
-
-				if !outside {
-					break
-				}
-
-				// continue
-			}
-
-			outside = is_outside
-
-			pBary *= cmd.inv_area
-
-			p = vec3{x, y, pBary.x * sv[0].z + pBary.y * sv[1].z + pBary.z * sv[2].z}
-
-			cBary := math_bary_interp(pBary, cmd.colors)
-
-
-			c := rl.ColorFromNormalized({cBary.r, cBary.g, cBary.b, 1})
-			c.a = outside ? 127 : 255
-			rl.DrawPixelV({p.x, p.y}, c)
-		}
-	}
-
-	// rl.DrawLineV({sv[0].x, sv[0].y}, {sv[1].x, sv[1].y}, color(3))
-	// rl.DrawLineV({sv[0].x, sv[0].y}, {sv[2].x, sv[2].y}, color(4))
-	// rl.DrawLineV({sv[2].x, sv[2].y}, {sv[1].x, sv[1].y}, color(5))
+	vv := (half * (v * {1,-1, 1})) + (half * {1,1,0})
+	// vr := vec3{half.x * v.x + half.x, half.y * -v.y + half.y, v.z}
+	return vv
 }
 
 
 tri_render_scanline :: proc(cmd: TriRenderCmd) {
-	sv := cmd.vertScreen - {0.5, 0.5, 0}
+	sv := cmd.vertScreen // {1, 1, 0}
 
-	slice.sort_by(sv[:3], proc(a, b: vec3) -> bool {
+	slice.sort_by(sv[:], proc(a, b: vec3) -> bool {
 		return a.y < b.y
 	})
 
@@ -329,9 +218,9 @@ tri_render_flat_bottom :: proc(cmd: TriRenderCmd, v: [3]vec3) {
 	curx1 := v[0].x
 	curx2 := v[0].x
 
-	for y in v[0].y ..= v[1].y {
+	for y in int(v[0].y) - 1 ..= int(v[1].y) + 1 {
 		//   drawLine(curx1, scanlineY, (int)curx2, scanlineY);
-		tri_render_single_line(cmd, curx1, curx2, y)
+		tri_render_single_line(cmd, int(curx1), int(curx2), int(y))
 		curx1 += invslope1
 		curx2 += invslope2
 	}
@@ -345,42 +234,48 @@ tri_render_flat_top :: proc(cmd: TriRenderCmd, v: [3]vec3) {
 	curx1 := v[2].x
 	curx2 := v[2].x
 
-	for y := v[2].y; y >= v[0].y; y -= 1 {
+	for y := int(v[2].y) + 1; y >= int(v[0].y) - 1; y -= 1 {
 		//   drawLine(curx1, scanlineY, curx2, scanlineY);
-		tri_render_single_line(cmd, curx1, curx2, y)
+		tri_render_single_line(cmd, int(curx1), int(curx2), int(y))
 		curx1 -= invslope1
 		curx2 -= invslope2
 	}
 
 }
 
-tri_render_single_line :: proc(cmd: TriRenderCmd, x1: f32, x2: f32, y: f32) {
+tri_render_single_line :: proc(cmd: TriRenderCmd, x1: int, x2: int, y: int) {
 	sv := cmd.vertScreen
 
 	xs := math.min(x1, x2)
 	xf := math.max(x1, x2)
 
-	for x in xs ..< xf {
-		p := vec3{x, y, 0}
+	for x in xs - 1 ..= xf + 1 {
+		p := vec3{f32(x) + 0.5, f32(y) + 0.5, 0}
 
-		pBary := math_barycentric_coords_edge(sv, p)
+		pBary := math_barycentric_coords_edge_ba(sv, cmd.edges, p)
 		pBary *= cmd.inv_area
 
-		p = vec3{x, y, pBary.x * sv[0].z + pBary.y * sv[1].z + pBary.z * sv[2].z}
+		if linalg.min(pBary) < 0 || linalg.max(pBary) > 1 {
+			continue
+		}
+
+
+		p.z = pBary.x * sv[0].z + pBary.y * sv[1].z + pBary.z * sv[2].z
 
 		if renderer.depthTest && !render_test_depth(p, true, renderer.depthFipped) {
 			continue
 		}
-		// d := renderer.depthBuffer[x, y]
+
 		cBary := math_bary_interp(pBary, cmd.colors)
-		c := rl.ColorFromNormalized({cBary.r, cBary.g, cBary.b, 1})
-		rl.DrawPixelV({p.x, p.y}, c)
+		c := cBary * {255, 255, 255}
+		rl.DrawPixelV({p.x, p.y}, {u8(c.r), u8(c.g), u8(c.b), 255})
 	}
 }
 
 render_begin :: proc() {
 	clear(&renderer.commands)
-	renderer.depthFipped = !renderer.depthFipped
+	// renderer.depthFipped = !renderer.depthFipped
+	slice.fill(renderer.depthBuffer[:], 0.0)
 }
 
 render_end :: proc() {
@@ -399,25 +294,6 @@ render_debug_ui :: proc(dt: f32, window: bool = true) {
 		ui.layout_row(ctx, {54, -1}, 0)
 		ui.label(ctx, "Size:")
 		ui.label(ctx, fmt.tprintf("%dx%d", renderer.width, renderer.height))
-
-		ui.layout_row(ctx, {50, 50, -1}, 0)
-
-
-		cmds := &renderer.commands
-		btn_text := len(cmds) > 0 ? "Step" : "Running"
-		step_res := ui.button(ctx, btn_text)
-		btn_id := ui.get_id(ctx, btn_text)
-
-		if .SUBMIT in step_res ||
-		   (ctx.hover_id == btn_id && rl.IsMouseButtonDown(.LEFT) && rl.IsKeyDown(.LEFT_CONTROL)) {
-			if len(cmds) > 0 {
-				rl.BeginTextureMode(renderer.screenTexture)
-				defer rl.EndTextureMode()
-				tri_render_stepped(&cmds[0])
-			}
-		}
-		ui.label(ctx, "res:")
-		ui.label(ctx, fmt.tprintf("{}}", step_res))
 	}
 
 	// if .ACTIVE in ui.header(ctx, "Window Options") {
@@ -445,37 +321,38 @@ render_debug_ui :: proc(dt: f32, window: bool = true) {
 	// }
 
 	if .ACTIVE in ui.header(ctx, "Commands", {.EXPANDED}) {
-		ui.checkbox(ctx, "Depth Test", &renderer.depthTest )
+		ui.checkbox(ctx, "Depth Test", &renderer.depthTest)
+		ui.checkbox(ctx, "Backface", &renderer.backfaceCull)
 		ui.layout_row(ctx, {140, -1})
 		// ui.layout_begin_column(ctx)
 
-		for cmd in renderer.commands {
-			if .ACTIVE in ui.treenode(ctx, fmt.tprintf("{}", cmd.id), {.EXPANDED}) {
-				ui.layout_row(ctx, {70, -1}, 0)
-				ui.label(ctx, "Step:")
-				ui.label(ctx, fmt.tprintf("{}", cmd.st.step))
+		// for cmd in renderer.commands {
+		// 	if .ACTIVE in ui.treenode(ctx, fmt.tprintf("{}", cmd.id), {.EXPANDED}) {
+		// 		ui.layout_row(ctx, {70, -1}, 0)
+		// 		ui.label(ctx, "Step:")
+		// 		ui.label(ctx, fmt.tprintf("{}", cmd.st.step))
 
-				ui.label(ctx, "p:")
-				ui.label(ctx, fmt.tprintf("{}", cmd.st.pixel_final))
+		// 		ui.label(ctx, "p:")
+		// 		ui.label(ctx, fmt.tprintf("{}", cmd.st.pixel_final))
 
-				ui.label(ctx, "Area:")
-				ui.label(ctx, fmt.tprintf("{}", cmd.area))
+		// 		ui.label(ctx, "Area:")
+		// 		ui.label(ctx, fmt.tprintf("{}", cmd.area))
 
-				ui.label(ctx, "Min:")
-				ui.label(ctx, fmt.tprintf("{}", cmd.st.min))
-				ui.label(ctx, "Max:")
-				ui.label(ctx, fmt.tprintf("{}", cmd.st.max))
+		// 		ui.label(ctx, "Min:")
+		// 		ui.label(ctx, fmt.tprintf("{}", cmd.st.min))
+		// 		ui.label(ctx, "Max:")
+		// 		ui.label(ctx, fmt.tprintf("{}", cmd.st.max))
 
-				ui.label(ctx, "pix bary")
-				ui.label(ctx, fmt.tprintf("{}", cmd.st.pixel_bary))
+		// 		ui.label(ctx, "pix bary")
+		// 		ui.label(ctx, fmt.tprintf("{}", cmd.st.pixel_bary))
 
-				ui.label(ctx, "pix outside")
-				ui.label(ctx, fmt.tprintf("{}", cmd.st.pixel_outside))
+		// 		ui.label(ctx, "pix outside")
+		// 		ui.label(ctx, fmt.tprintf("{}", cmd.st.pixel_outside))
 
-				ui.label(ctx, "calc bary")
-				ui.label(ctx, fmt.tprintf("{}", cmd.st.pixel_bary_calc))
-			}
-		}
+		// 		ui.label(ctx, "calc bary")
+		// 		ui.label(ctx, fmt.tprintf("{}", cmd.st.pixel_bary_calc))
+		// 	}
+		// }
 
 	}
 }

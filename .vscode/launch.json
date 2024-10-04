@@ -10,7 +10,7 @@
             "type": "gdb",
             "request": "launch",
             "name": "GDB Launch Program",
-            "target": "${workspaceFolder}/.build/cubey.exe",
+            "target": "${workspaceFolder}/.build/cubey.debug.exe",
             "cwd": "${workspaceFolder}",
             "valuesFormatting": "parseText",
             "preLaunchTask": "Build: Boxy"
@@ -21,7 +21,7 @@
             "type": "cppvsdbg",
             "request": "launch",
             "name": "Windows Debug Boxy",
-            "program": "${workspaceFolder}/.build/cubey.exe",
+            "program": "${workspaceFolder}/.build/cubey.debug.exe",
             "args": [],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "Build: Boxy"

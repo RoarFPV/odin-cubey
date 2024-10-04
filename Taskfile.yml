@@ -13,11 +13,11 @@ tasks:
     sources:
       - ./**/*.odin
     generates:
-      - ./{{.NAME}}.exe
+      - ./{{.NAME}}.debug.exe
       # - ./{{.NAME}}
     cmds:
       # - odin build . -out:"{{.NAME}}"
       - mkdir -p .build
-      - odin build . -debug -out:".build/{{.NAME}}.exe"
+      - odin build . -debug -out:".build/{{.NAME}}.debug.exe"
       # - nix-shell ../../shell.nix --run 'autoPatchelf {{.NAME}}.elf'
       # - nix-shell ../../shell.nix --run 'patchelf {{.NAME}}.elf --add-needed libvulkan.so.1'
