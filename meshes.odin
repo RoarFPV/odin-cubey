@@ -6,6 +6,7 @@ mesh_triangle := Mesh {
 	verticies = {{0, 0, 0}, {1, 1, 0}, {1, -1, 0}}, // both
 	indicies  = {0, 1, 2},
 	colors    = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}},
+	uvs = {}
 }
 
 mesh_cube := Mesh {

@@ -35,6 +35,7 @@ Mesh :: struct {
 	name:      string,
 	verticies: [dynamic]vec3,
 	colors:    [dynamic]vec3,
+	uvs:       [dynamic]vec3,
 	normals:   [dynamic]vec3,
 	indicies:  [dynamic]u16,
 }
@@ -70,13 +71,15 @@ TriRenderCmd :: struct {
 	vertClip:   [3]vec4,
 	vertCamera: [3]vec3,
 	vertScreen: [3]vec3,
+	vertWorld:  [3]vec3,
 	indicies:   [3]u16,
 	colors:     [3]vec3,
 	area:       f32,
 	inv_area:   f32,
-	st:         TriRenderStateData,
+	// st:         TriRenderStateData,
 	bary:       BaryData,
 	edges:      [3]vec3,
+	normal:     vec3,
 }
 
 
@@ -131,6 +134,7 @@ mesh_render :: proc(mesh: ^Mesh, model: ^mat44, view: ^mat44, proj: ^mat44, draw
 			vmv := mesh.verticies[cmd.indicies[i]]
 			cmd.vertClip[i] = {vmv.x, vmv.y, vmv.z, 1}
 
+			cmd.vertWorld[i] = (model^ * cmd.vertClip[i]).xyz
 			cmd.vertCamera[i] = (mv * cmd.vertClip[i]).xyz
 			// TODO: clip vertCamera verticies
 			cmd.vertClip[i] = mvp * cmd.vertClip[i]
@@ -158,6 +162,7 @@ mesh_render :: proc(mesh: ^Mesh, model: ^mat44, view: ^mat44, proj: ^mat44, draw
 		// 	continue
 		// }
 
+		cmd.normal = math_tri_normal(cmd.vertWorld)
 		normal := math_tri_normal(cmd.vertCamera)
 		if renderer.backfaceCull && linalg.dot(cmd.vertCamera[0], normal) <= 0 {
 			continue
@@ -176,7 +181,7 @@ mesh_render :: proc(mesh: ^Mesh, model: ^mat44, view: ^mat44, proj: ^mat44, draw
 @(require_results)
 viewport_scale :: proc "contextless" (halfViewport: vec3, v: vec3) -> vec3 {
 	half := halfViewport
-	vv := (half * (v * {1,-1, 1})) + (half * {1,1,0})
+	vv := (half * (v * {1, -1, 1})) + (half * {1, 1, 0})
 	// vr := vec3{half.x * v.x + half.x, half.y * -v.y + half.y, v.z}
 	return vv
 }
@@ -243,6 +248,9 @@ tri_render_flat_top :: proc(cmd: TriRenderCmd, v: [3]vec3) {
 
 }
 
+light_dir := linalg.normalize(vec3{0, -0.25, 0})
+light_intensity: f32 = 2
+
 tri_render_single_line :: proc(cmd: TriRenderCmd, x1: int, x2: int, y: int) {
 	sv := cmd.vertScreen
 
@@ -259,15 +267,17 @@ tri_render_single_line :: proc(cmd: TriRenderCmd, x1: int, x2: int, y: int) {
 			continue
 		}
 
-
 		p.z = pBary.x * sv[0].z + pBary.y * sv[1].z + pBary.z * sv[2].z
 
 		if renderer.depthTest && !render_test_depth(p, true, renderer.depthFipped) {
 			continue
 		}
 
+
 		cBary := math_bary_interp(pBary, cmd.colors)
-		c := cBary * {255, 255, 255}
+		cBary *= math.max(linalg.dot(cmd.normal, light_dir), 0) * light_intensity
+
+		c := linalg.saturate(cBary) * {255, 255, 255}
 		rl.DrawPixelV({p.x, p.y}, {u8(c.r), u8(c.g), u8(c.b), 255})
 	}
 }
