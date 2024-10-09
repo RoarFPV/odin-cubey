@@ -73,6 +73,7 @@ scaled_height :: height * inv_unit_scale
 
 
 activeMesh: ^Mesh = &mesh_triangle
+material: Material
 
 // Entities
 EntityMap :: map[u32]Entity
@@ -122,7 +123,7 @@ game_update_input :: proc(dt: f32) {
 		dt
 
 	if rotation {
-		model_mat *= linalg.matrix4_rotate_f32(1 * dt, {1, 1, 1})
+		model_mat *= linalg.matrix4_rotate_f32(2 * dt, {1, 1, 1})
 	}
 }
 
@@ -207,7 +208,7 @@ game_render :: proc() {
 		defer render_end()
 
 		// if len(renderer.commands) == 0 {
-			mesh_render(activeMesh, &model_mat, &v, &proj, true)
+		mesh_render(activeMesh, material, &model_mat, &v, &proj, true)
 		// } else {
 		// 	if renderer.commands[0].st.step == .Complete {
 		// 		ordered_remove(&renderer.commands, 0)
@@ -234,8 +235,13 @@ game_render_score :: proc() {
 }
 
 game_init :: proc() {
-	renderer_init(640,400)
+	renderer_init(640, 400)
 	renderer.screenTexture = rl.LoadRenderTexture(renderer.width, renderer.height)
+
+	material.name = "material"
+	material.texture = rl.LoadImage("assets/grass.png")
+	material.ambient = 0.2
+
 }
 
 

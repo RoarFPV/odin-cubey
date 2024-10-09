@@ -35,9 +35,15 @@ Mesh :: struct {
 	name:      string,
 	verticies: [dynamic]vec3,
 	colors:    [dynamic]vec3,
-	uvs:       [dynamic]vec3,
 	normals:   [dynamic]vec3,
+	uvs:       [dynamic]vec3,
 	indicies:  [dynamic]u16,
+}
+
+Material :: struct {
+	name:    string,
+	texture: rl.Image,
+	ambient: f32,
 }
 
 TriRenderState :: enum {
@@ -74,12 +80,14 @@ TriRenderCmd :: struct {
 	vertWorld:  [3]vec3,
 	indicies:   [3]u16,
 	colors:     [3]vec3,
+	uvs:        [3]vec3,
 	area:       f32,
 	inv_area:   f32,
 	// st:         TriRenderStateData,
 	bary:       BaryData,
 	edges:      [3]vec3,
 	normal:     vec3,
+	material:   Material,
 }
 
 
@@ -115,7 +123,14 @@ renderer_init :: proc(width, height: i32) {
 	renderer.depthBuffer = make_dynamic_array_len([dynamic]f32, width * height)
 }
 
-mesh_render :: proc(mesh: ^Mesh, model: ^mat44, view: ^mat44, proj: ^mat44, draw: bool = true) {
+mesh_render :: proc(
+	mesh: ^Mesh,
+	material: Material,
+	model: ^mat44,
+	view: ^mat44,
+	proj: ^mat44,
+	draw: bool = true,
+) {
 	triCount := int(mesh_triangle_count(mesh))
 	// reserve(&render_commands, triCount)
 	mv := view^ * model^
@@ -124,6 +139,7 @@ mesh_render :: proc(mesh: ^Mesh, model: ^mat44, view: ^mat44, proj: ^mat44, draw
 	cmd := TriRenderCmd {
 		mesh      = mesh,
 		transform = {mvp, model, view, proj},
+		material  = material,
 	}
 
 	vp := vec3{auto_cast renderer.width, auto_cast renderer.height, 2} / 2.0
@@ -140,8 +156,13 @@ mesh_render :: proc(mesh: ^Mesh, model: ^mat44, view: ^mat44, proj: ^mat44, draw
 			cmd.vertClip[i] = mvp * cmd.vertClip[i]
 
 			cmd.colors[i] = mesh.colors[cmd.indicies[i]]
+			
 
 			w := cmd.vertClip[i].w
+			
+			cmd.uvs[i] = mesh.uvs[cmd.indicies[i]] / w
+			cmd.uvs[i].z = 1 / w
+
 			cmd.vertScreen[i] = cmd.vertClip[i].xyz
 			cmd.vertScreen[i] /= w
 
@@ -275,10 +296,25 @@ tri_render_single_line :: proc(cmd: TriRenderCmd, x1: int, x2: int, y: int) {
 
 
 		cBary := math_bary_interp(pBary, cmd.colors)
-		cBary *= math.max(linalg.dot(cmd.normal, light_dir), 0) * light_intensity
+		uv := math_bary_interp(pBary, cmd.uvs)
+		cTex := mat_sample_texture(cmd.material, uv.xy / uv.z)
+		cTex *=
+			cmd.material.ambient + math.max(linalg.dot(cmd.normal, light_dir), 0) * light_intensity
 
-		c := linalg.saturate(cBary) * {255, 255, 255}
+		c := linalg.saturate(cTex) * {255, 255, 255, 255}
 		rl.DrawPixelV({p.x, p.y}, {u8(c.r), u8(c.g), u8(c.b), 255})
+	}
+}
+
+mat_sample_texture :: proc(mat: Material, at: vec2) -> vec4 {
+	w: f32 = auto_cast mat.texture.width - 1
+	h: f32 = auto_cast mat.texture.height - 1
+	color := rl.GetImageColor(mat.texture, i32(w * at.x), i32(h * at.y))
+	return vec4 {
+		f32(color.x) / 255.0,
+		f32(color.y) / 255.0,
+		f32(color.z) / 255.0,
+		f32(color.w) / 255.0,
 	}
 }
 
