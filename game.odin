@@ -3,12 +3,14 @@ package cubey
 
 import rl "vendor:raylib"
 import rlgl "vendor:raylib/rlgl"
+import "vendor:cgltf"
 
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import "core:math/rand"
 import "core:strings"
+
 
 GameState :: enum {
 	Reset,
@@ -241,6 +243,19 @@ game_init :: proc() {
 	material.name = "material"
 	material.texture = rl.LoadImage("assets/grass.png")
 	material.ambient = 0.2
+
+	options : cgltf.options
+
+	data, result := cgltf.parse_file(options, "assets/glTF-Sample-Assets/Models/FlightHelmet/glTF/FlightHelmet.gltf")
+	if result != .success {
+		/* TODO handle error */
+		// fmt.error()		
+	}
+
+	for mesh in data.meshes {
+		fmt.println(mesh)
+	}
+	defer cgltf.free(data)
 
 }
 
