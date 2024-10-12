@@ -188,14 +188,11 @@ mesh_render :: proc(
 		if renderer.backfaceCull && linalg.dot(cmd.vertCamera[0], normal) <= 0 {
 			continue
 		}
-		// assert(cmd.area != 0.0)
-		if draw {
-			// tri_render(cmd)
-			tri_render_scanline(cmd)
-		}
+		
 
 		cmd.id = auto_cast len(renderer.commands)
 		append(&renderer.commands, cmd)
+		}
 	}
 }
 
@@ -325,7 +322,9 @@ render_begin :: proc() {
 }
 
 render_end :: proc() {
-
+	for cmd in renderer.commands {
+		tri_render_scanline(cmd)
+	}
 }
 
 render_debug_ui :: proc(dt: f32, window: bool = true) {

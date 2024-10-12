@@ -209,14 +209,9 @@ game_render :: proc() {
 		render_begin()
 		defer render_end()
 
-		// if len(renderer.commands) == 0 {
 		mesh_render(activeMesh, material, &model_mat, &v, &proj, true)
-		// } else {
-		// 	if renderer.commands[0].st.step == .Complete {
-		// 		ordered_remove(&renderer.commands, 0)
-		// 	}
-		// }
 	}
+
 
 	{
 
