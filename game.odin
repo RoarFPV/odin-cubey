@@ -241,10 +241,11 @@ game_init :: proc() {
 
 	options : cgltf.options
 
-	data, result := cgltf.parse_file(options, "assets/glTF-Sample-Assets/Models/FlightHelmet/glTF/FlightHelmet.gltf")
+	data, result := cgltf.parse_file(options, "assets/models/BoxTextured/glTF/BoxTextured.gltf")
 	if result != .success {
 		/* TODO handle error */
 		// fmt.error()		
+		return
 	}
 
 	for mesh in data.meshes {

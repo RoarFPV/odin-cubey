@@ -192,7 +192,7 @@ mesh_render :: proc(
 
 		cmd.id = auto_cast len(renderer.commands)
 		append(&renderer.commands, cmd)
-		}
+		
 	}
 }
 
