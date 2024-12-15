@@ -5,6 +5,7 @@ import rl "vendor:raylib"
 import rlgl "vendor:raylib/rlgl"
 import "vendor:cgltf"
 
+
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
@@ -248,9 +249,34 @@ game_init :: proc() {
 		return
 	}
 
-	for mesh in data.meshes {
-		fmt.println(mesh)
+	for node in data.nodes {
+		fmt.println(node.name)
+		for child in node.children {
+			mat := child.matrix_
+			fmt.printfln("  - {}, {}, mesh: {}", child.name, mat, child.mesh.name)
+
+			mesh := child.mesh
+
+			for prim in mesh.primitives {
+				fmt.printfln("    - {}", prim.type)
+				
+
+				for attr in prim.attributes {
+
+					data := attr.data
+					fmt.printfln("      - {}:{}:[{}]", attr.type, attr.name, attr.index)
+					fmt.printfln("        - data:{}:{}:{}", data.name, data.component_type, data.type)
+					fmt.printfln("          offset:{}", data.offset)
+					fmt.printfln("          count:{}", data.count)
+					fmt.printfln("          stride:{}", data.stride)
+					
+				}
+			}
+
+
+		}
 	}
+	
 	defer cgltf.free(data)
 
 }

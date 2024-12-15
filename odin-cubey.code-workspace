@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../../../raylib"
+		},
+		{
+			"path": "../../../cgltf"
 		}
 	],
 	"settings": {}
