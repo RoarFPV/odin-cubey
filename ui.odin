@@ -3,494 +3,266 @@ package cubey
 
 import "core:c"
 import "core:fmt"
+import "core:math"
 import "core:strings"
 import "core:unicode/utf8"
 
-import mu "microui"
 import rl "vendor:raylib"
+import clay "lib/clay-odin"
 
-ui :: mu 
+ui :: clay 
 
 state := struct {
-	mu_ctx:          mu.Context,
-	log_buf:         [1 << 16]byte,
-	log_buf_len:     int,
-	log_buf_updated: bool,
-	bg:              mu.Color,
-	atlas_texture:   rl.RenderTexture2D,
 	screen_width:    c.int,
 	screen_height:   c.int,
 	screen_texture:  rl.RenderTexture2D,
 } {
 	screen_width  = 960,
 	screen_height = 540,
-	bg            = {90, 95, 100, 1},
 }
 
-mouse_buttons_map := [mu.Mouse]rl.MouseButton {
-	.LEFT   = .LEFT,
-	.RIGHT  = .RIGHT,
-	.MIDDLE = .MIDDLE,
-}
 
-key_map := [mu.Key][2]rl.KeyboardKey {
-	.SHIFT     = {.LEFT_SHIFT, .RIGHT_SHIFT},
-	.CTRL      = {.LEFT_CONTROL, .RIGHT_CONTROL},
-	.ALT       = {.LEFT_ALT, .RIGHT_ALT},
-	.BACKSPACE = {.BACKSPACE, .KEY_NULL},
-	.DELETE    = {.DELETE, .KEY_NULL},
-	.RETURN    = {.ENTER, .KP_ENTER},
-	.LEFT      = {.LEFT, .KEY_NULL},
-	.RIGHT     = {.RIGHT, .KEY_NULL},
-	.HOME      = {.HOME, .KEY_NULL},
-	.END       = {.END, .KEY_NULL},
-	.A         = {.A, .KEY_NULL},
-	.X         = {.X, .KEY_NULL},
-	.C         = {.C, .KEY_NULL},
-	.V         = {.V, .KEY_NULL},
+RaylibFont :: struct {
+    fontId: u16,
+    font:   rl.Font,
 }
+raylibFonts := [10]RaylibFont{}
 
 
 ui_init :: proc(screen: [2]u32) {
 
-	state.screen_width = auto_cast screen[0]
-	state.screen_height = auto_cast screen[1]
+	state.screen_width = rl.GetScreenWidth()
+	state.screen_height = rl.GetScreenHeight()
 
-	ctx := &state.mu_ctx
-	mu.init(ctx, set_clipboard = proc(user_data: rawptr, text: string) -> (ok: bool) {
-			cstr := strings.clone_to_cstring(text)
-			rl.SetClipboardText(cstr)
-			delete(cstr)
-			return true
-		}, get_clipboard = proc(user_data: rawptr) -> (text: string, ok: bool) {
-			cstr := rl.GetClipboardText()
-			if cstr != nil {
-				text = string(cstr)
-				ok = true
-			}
-			return
-		})
+	minMemorySize: u32 = clay.MinMemorySize()
+    memory := make([^]u8, minMemorySize)
+    arena: clay.Arena = clay.CreateArenaWithCapacityAndMemory(minMemorySize, memory)
+    clay.SetMeasureTextFunction(measureText)
+    clay.Initialize(arena, {cast(f32)state.screen_width, cast(f32)state.screen_height})
 
-	ctx.text_width = mu.default_atlas_text_width
-	ctx.text_height = mu.default_atlas_text_height
-
-	state.atlas_texture = rl.LoadRenderTexture(
-		c.int(mu.DEFAULT_ATLAS_WIDTH),
-		c.int(mu.DEFAULT_ATLAS_HEIGHT),
-	)
-
-	image := rl.GenImageColor(
-		c.int(mu.DEFAULT_ATLAS_WIDTH),
-		c.int(mu.DEFAULT_ATLAS_HEIGHT),
-		rl.Color{0, 0, 0, 0},
-	)
-	defer rl.UnloadImage(image)
-	for alpha, i in mu.default_atlas_alpha {
-		x := i % mu.DEFAULT_ATLAS_WIDTH
-		y := i / mu.DEFAULT_ATLAS_WIDTH
-		color := rl.Color{255, 255, 255, alpha}
-		rl.ImageDrawPixel(&image, c.int(x), c.int(y), color)
-	}
-
-	rl.BeginTextureMode(state.atlas_texture)
-	rl.UpdateTexture(state.atlas_texture.texture, rl.LoadImageColors(image))
-	rl.EndTextureMode()
+	ui_load_font(0, 16, "assets/fonts/Michroma-Regular.ttf")
+	ui_load_font(1, 16, "assets/fonts/Quicksand-Semibold.ttf")
 
 	state.screen_texture = rl.LoadRenderTexture(state.screen_width, state.screen_height)
 }
 
 ui_shudown :: proc() {
 	rl.UnloadRenderTexture(state.screen_texture)
-	rl.UnloadRenderTexture(state.atlas_texture)
 }
 
-ui_update :: proc() {
+ui_update_begin :: proc(deltaTime:f32) {
+	
+	state.screen_width = rl.GetScreenWidth()
+	state.screen_height = rl.GetScreenHeight()
 
+	wheel := rl.GetMouseWheelMoveV()
+ 	mpos := rl.GetMousePosition()
+	leftBtn := rl.IsMouseButtonDown(rl.MouseButton.LEFT)
 
-	ctx := &state.mu_ctx
+	size : clay.Dimensions = {cast(f32)state.screen_width, cast(f32)state.screen_height}
 
-	mouse_pos := rl.GetMousePosition()
-	mouse_x, mouse_y := i32(mouse_pos.x), i32(mouse_pos.y)
-	mu.input_mouse_move(ctx, mouse_x, mouse_y)
+	// clay.SetDebugModeEnabled(true)
 
-	mouse_wheel_pos := rl.GetMouseWheelMoveV()
-	mu.input_scroll(ctx, i32(mouse_wheel_pos.x) * 30, i32(mouse_wheel_pos.y) * -30)
+	clay.SetPointerState(mpos, leftBtn)
+	clay.UpdateScrollContainers(false, wheel , deltaTime)
 
-	for button_rl, button_mu in mouse_buttons_map {
-		if rl.IsMouseButtonPressed(button_rl) {
-			mu.input_mouse_down(ctx, mouse_x, mouse_y, button_mu)
-			write_log(fmt.aprintf("{}: down", button_rl))
-		}
-		if rl.IsMouseButtonReleased(button_rl) {
-			mu.input_mouse_up(ctx, mouse_x, mouse_y, button_mu)
-			write_log(fmt.aprintf("{}: up", button_rl))
-		}
-
-	}
-
-	for keys_rl, key_mu in key_map {
-		for key_rl in keys_rl {
-			switch {
-			case key_rl == .KEY_NULL:
-			// ignore
-			case rl.IsKeyPressed(key_rl), rl.IsKeyPressedRepeat(key_rl):
-				mu.input_key_down(ctx, key_mu)
-			case rl.IsKeyReleased(key_rl):
-				mu.input_key_up(ctx, key_mu)
-			}
-		}
-	}
-
-	{
-		buf: [512]byte
-		n: int
-		for n < len(buf) {
-			c := rl.GetCharPressed()
-			if c == 0 {
-				break
-			}
-			b, w := utf8.encode_rune(c)
-			n += copy(buf[n:], b[:w])
-		}
-		mu.input_text(ctx, string(buf[:n]))
-	}
-
-	mu.begin(ctx)
-	// all_windows(ctx)
-
-
+	clay.SetLayoutDimensions(size)
+	// animValue := animationLerpValue < 0 ? (animationLerpValue + 1) : (1 - animationLerpValue)
+	
+	clay.BeginLayout()
 }
+
 
 ui_update_end :: proc () {
-	mu.end(&state.mu_ctx)
-}
 
-@(private)
-render :: proc "contextless" (ctx: ^mu.Context) {
-	render_texture :: proc "contextless" (
-		renderer: rl.RenderTexture2D,
-		dst: ^rl.Rectangle,
-		src: mu.Rect,
-		color: rl.Color,
-	) {
-		dst.width = f32(src.w)
-		dst.height = f32(src.h)
-
-		rl.DrawTextureRec(
-			texture = state.atlas_texture.texture,
-			source = {f32(src.x), f32(src.y), f32(src.w), f32(src.h)},
-			position = {dst.x, dst.y},
-			tint = color,
-		)
-	}
-
-	to_rl_color :: proc "contextless" (in_color: mu.Color) -> (out_color: rl.Color) {
-		return {in_color.r, in_color.g, in_color.b, in_color.a}
-	}
-
-	height := rl.GetScreenHeight()
-
-	rl.BeginTextureMode(state.screen_texture)
-	rl.EndScissorMode()
-	rl.ClearBackground(to_rl_color(state.bg))
-
-	command_backing: ^mu.Command
-	for variant in mu.next_command_iterator(ctx, &command_backing) {
-		switch cmd in variant {
-		case ^mu.Command_Text:
-			dst := rl.Rectangle{f32(cmd.pos.x), f32(cmd.pos.y), 0, 0}
-			for ch in cmd.str {
-				if ch & 0xc0 != 0x80 {
-					r := min(int(ch), 127)
-					src := mu.default_atlas[mu.DEFAULT_ATLAS_FONT + r]
-					render_texture(state.screen_texture, &dst, src, to_rl_color(cmd.color))
-					dst.x += dst.width
-				}
-			}
-		case ^mu.Command_Rect:
-			rl.DrawRectangle(
-				cmd.rect.x,
-				cmd.rect.y,
-				cmd.rect.w,
-				cmd.rect.h,
-				to_rl_color(cmd.color),
-			)
-		case ^mu.Command_Icon:
-			src := mu.default_atlas[cmd.id]
-			x := cmd.rect.x + (cmd.rect.w - src.w) / 2
-			y := cmd.rect.y + (cmd.rect.h - src.h) / 2
-			render_texture(
-				state.screen_texture,
-				&rl.Rectangle{f32(x), f32(y), 0, 0},
-				src,
-				to_rl_color(cmd.color),
-			)
-		case ^mu.Command_Clip:
-			rl.BeginScissorMode(
-				cmd.rect.x,
-				height - (cmd.rect.y + cmd.rect.h),
-				cmd.rect.w,
-				cmd.rect.h,
-			)
-		case ^mu.Command_Jump:
-			unreachable()
-		}
-	}
-	rl.EndTextureMode()
+	renderCommands := clay.EndLayout()
+	
+	clayRaylibRender(&renderCommands)
 
 }
 
-ui_render :: proc() {
-	render(&state.mu_ctx)
-
-	rl.DrawTextureRec(
-		texture = state.screen_texture.texture,
-		source = {0, 0, f32(state.screen_width), -f32(state.screen_height)},
-		position = {0, 0},
-		tint = rl.WHITE,
-	)
+ui_load_font :: proc(fontId: u16, fontSize: u16, path: cstring) {
+    raylibFonts[fontId] = RaylibFont {
+        font   = rl.LoadFontEx(path, cast(i32)fontSize * 2, nil, 0),
+        fontId = cast(u16)fontId,
+    }
+    rl.SetTextureFilter(raylibFonts[fontId].font.texture, rl.TextureFilter.TRILINEAR)
 }
 
-u8_slider :: proc(ctx: ^mu.Context, val: ^u8, lo, hi: u8) -> (res: mu.Result_Set) {
-	mu.push_id(ctx, uintptr(val))
-
-	@(static) tmp: mu.Real
-	tmp = mu.Real(val^)
-	res = mu.slider(ctx, &tmp, mu.Real(lo), mu.Real(hi), 0, "%.0f", {.ALIGN_CENTER})
-	val^ = u8(tmp)
-	mu.pop_id(ctx)
-	return
+clayColorToRaylibColor :: proc(color: clay.Color) -> rl.Color {
+    return rl.Color{cast(u8)color.r, cast(u8)color.g, cast(u8)color.b, cast(u8)color.a}
 }
 
-write_log :: proc(str: string) {
-	state.log_buf_len += copy(state.log_buf[state.log_buf_len:], str)
-	state.log_buf_len += copy(state.log_buf[state.log_buf_len:], "\n")
-	state.log_buf_updated = true
+measureText :: proc "c" (text: ^clay.String, config: ^clay.TextElementConfig) -> clay.Dimensions {
+    // Measure string size for Font
+    
+	textSize: clay.Dimensions = {0, 0}
+
+    maxTextWidth: f32 = 0
+    lineTextWidth: f32 = 0
+
+    textHeight := cast(f32)config.fontSize
+	font := raylibFonts[config.fontId]
+    fontToUse := raylibFonts[config.fontId].font
+
+	
+	// size := rl.MeasureTextEx(fontToUse, cast(cstring) text.chars, auto_cast fontToUse.baseSize, 1 )
+
+    for i in 0 ..< int(text.length) {
+        if (text.chars[i] == '\n') {
+            maxTextWidth = max(maxTextWidth, lineTextWidth)
+            lineTextWidth = 0
+            continue
+        }
+        index := cast(i32)text.chars[i] - 32
+        if (fontToUse.glyphs[index].advanceX != 0) {
+            lineTextWidth += cast(f32)fontToUse.glyphs[index].advanceX
+        } else {
+            lineTextWidth += (fontToUse.recs[index].width + cast(f32)fontToUse.glyphs[index].offsetX)
+        }
+    }
+
+    maxTextWidth = max(maxTextWidth, lineTextWidth)
+
+    textSize.width = maxTextWidth / 2
+    textSize.height = textHeight
+
+    return textSize
 }
 
-read_log :: proc() -> string {
-	return string(state.log_buf[:state.log_buf_len])
+clayRaylibRender :: proc(renderCommands: ^clay.ClayArray(clay.RenderCommand), allocator := context.temp_allocator) {
+    for i in 0 ..< int(renderCommands.length) {
+        renderCommand := clay.RenderCommandArray_Get(renderCommands, cast(i32)i)
+        boundingBox := renderCommand.boundingBox
+        switch (renderCommand.commandType) {
+        case clay.RenderCommandType.None:
+            {}
+        case clay.RenderCommandType.Text:
+            // Raylib uses standard C strings so isn't compatible with cheap slices, we need to clone the string to append null terminator
+            text := string(renderCommand.text.chars[:renderCommand.text.length])
+            cloned := strings.clone_to_cstring(text, allocator)
+            fontToUse: rl.Font = raylibFonts[renderCommand.config.textElementConfig.fontId].font
+            rl.DrawTextEx(
+                fontToUse,
+                cloned,
+                rl.Vector2{boundingBox.x, boundingBox.y},
+                cast(f32)renderCommand.config.textElementConfig.fontSize,
+                cast(f32)renderCommand.config.textElementConfig.letterSpacing,
+                clayColorToRaylibColor(renderCommand.config.textElementConfig.textColor),
+            )
+        case clay.RenderCommandType.Image:
+            // TODO image handling
+            imageTexture := cast(^rl.Texture2D)renderCommand.config.imageElementConfig.imageData
+            rl.DrawTextureEx(imageTexture^, rl.Vector2{boundingBox.x, boundingBox.y}, 0, boundingBox.width / cast(f32)imageTexture.width, rl.WHITE)
+        case clay.RenderCommandType.ScissorStart:
+            rl.BeginScissorMode(
+                cast(i32)math.round(boundingBox.x),
+                cast(i32)math.round(boundingBox.y),
+                cast(i32)math.round(boundingBox.width),
+                cast(i32)math.round(boundingBox.height),
+            )
+        case clay.RenderCommandType.ScissorEnd:
+            rl.EndScissorMode()
+        case clay.RenderCommandType.Rectangle:
+            config: ^clay.RectangleElementConfig = renderCommand.config.rectangleElementConfig
+            if (config.cornerRadius.topLeft > 0) {
+                radius: f32 = (config.cornerRadius.topLeft * 2) / min(boundingBox.width, boundingBox.height)
+                rl.DrawRectangleRounded(rl.Rectangle{boundingBox.x, boundingBox.y, boundingBox.width, boundingBox.height}, radius, 8, clayColorToRaylibColor(config.color))
+            } else {
+                rl.DrawRectangle(cast(i32)boundingBox.x, cast(i32)boundingBox.y, cast(i32)boundingBox.width, cast(i32)boundingBox.height, clayColorToRaylibColor(config.color))
+            }
+        case clay.RenderCommandType.Border:
+            config := renderCommand.config.borderElementConfig
+            // Left border
+            if (config.left.width > 0) {
+                rl.DrawRectangle(
+                    cast(i32)math.round(boundingBox.x),
+                    cast(i32)math.round(boundingBox.y + config.cornerRadius.topLeft),
+                    cast(i32)config.left.width,
+                    cast(i32)math.round(boundingBox.height - config.cornerRadius.topLeft - config.cornerRadius.bottomLeft),
+                    clayColorToRaylibColor(config.left.color),
+                )
+            }
+            // Right border
+            if (config.right.width > 0) {
+                rl.DrawRectangle(
+                    cast(i32)math.round(boundingBox.x + boundingBox.width - cast(f32)config.right.width),
+                    cast(i32)math.round(boundingBox.y + config.cornerRadius.topRight),
+                    cast(i32)config.right.width,
+                    cast(i32)math.round(boundingBox.height - config.cornerRadius.topRight - config.cornerRadius.bottomRight),
+                    clayColorToRaylibColor(config.right.color),
+                )
+            }
+            // Top border
+            if (config.top.width > 0) {
+                rl.DrawRectangle(
+                    cast(i32)math.round(boundingBox.x + config.cornerRadius.topLeft),
+                    cast(i32)math.round(boundingBox.y),
+                    cast(i32)math.round(boundingBox.width - config.cornerRadius.topLeft - config.cornerRadius.topRight),
+                    cast(i32)config.top.width,
+                    clayColorToRaylibColor(config.top.color),
+                )
+            }
+            // Bottom border
+            if (config.bottom.width > 0) {
+                rl.DrawRectangle(
+                    cast(i32)math.round(boundingBox.x + config.cornerRadius.bottomLeft),
+                    cast(i32)math.round(boundingBox.y + boundingBox.height - cast(f32)config.bottom.width),
+                    cast(i32)math.round(boundingBox.width - config.cornerRadius.bottomLeft - config.cornerRadius.bottomRight),
+                    cast(i32)config.bottom.width,
+                    clayColorToRaylibColor(config.bottom.color),
+                )
+            }
+            if (config.cornerRadius.topLeft > 0) {
+                rl.DrawRing(
+                    rl.Vector2{math.round(boundingBox.x + config.cornerRadius.topLeft), math.round(boundingBox.y + config.cornerRadius.topLeft)},
+                    math.round(config.cornerRadius.topLeft - cast(f32)config.top.width),
+                    config.cornerRadius.topLeft,
+                    180,
+                    270,
+                    10,
+                    clayColorToRaylibColor(config.top.color),
+                )
+            }
+            if (config.cornerRadius.topRight > 0) {
+                rl.DrawRing(
+                    rl.Vector2{math.round(boundingBox.x + boundingBox.width - config.cornerRadius.topRight), math.round(boundingBox.y + config.cornerRadius.topRight)},
+                    math.round(config.cornerRadius.topRight - cast(f32)config.top.width),
+                    config.cornerRadius.topRight,
+                    270,
+                    360,
+                    10,
+                    clayColorToRaylibColor(config.top.color),
+                )
+            }
+            if (config.cornerRadius.bottomLeft > 0) {
+                rl.DrawRing(
+                    rl.Vector2{math.round(boundingBox.x + config.cornerRadius.bottomLeft), math.round(boundingBox.y + boundingBox.height - config.cornerRadius.bottomLeft)},
+                    math.round(config.cornerRadius.bottomLeft - cast(f32)config.top.width),
+                    config.cornerRadius.bottomLeft,
+                    90,
+                    180,
+                    10,
+                    clayColorToRaylibColor(config.bottom.color),
+                )
+            }
+            if (config.cornerRadius.bottomRight > 0) {
+                rl.DrawRing(
+                    rl.Vector2 {
+                        math.round(boundingBox.x + boundingBox.width - config.cornerRadius.bottomRight),
+                        math.round(boundingBox.y + boundingBox.height - config.cornerRadius.bottomRight),
+                    },
+                    math.round(config.cornerRadius.bottomRight - cast(f32)config.bottom.width),
+                    config.cornerRadius.bottomRight,
+                    0.1,
+                    90,
+                    10,
+                    clayColorToRaylibColor(config.bottom.color),
+                )
+            }
+        case clay.RenderCommandType.Custom:
+        // Implement custom element rendering here
+        }
+    }
 }
-reset_log :: proc() {
-	state.log_buf_updated = true
-	state.log_buf_len = 0
-}
-
-
-all_windows :: proc(ctx: ^mu.Context) {
-	@(static) opts := mu.Options{.NO_CLOSE, .USE_LAYOUT, .NO_RESIZE}
-
-	menu_h :i32 = 25
-	mu.window(
-		ctx,
-		"Root, ",
-		{0, 0, width, height},
-		mu.Options{.NO_CLOSE, .NO_FRAME, .NO_TITLE, .NO_RESIZE, .NO_SCROLL},
-	)
-
-	{
-		mu.layout_row(ctx, {-1}, menu_h)
-		mu.begin_panel(ctx, "Menu", {.NO_FRAME})
-
-		mu.button(ctx, "File", .NONE, {.NO_FRAME, .ALIGN_CENTER})
-
-		mu.end_panel(ctx)
-
-		cnt := mu.get_current_container(ctx)
-		// mu.layout_column(ctx, {50, sw*2, sw}, -1)
-		sw := i32(f32(cnt.body.w)*0.25)
-		mu.layout_row(ctx, {sw, sw*2, sw}, i32(f32(cnt.body.h)*0.75)-menu_h)
-	}
-
-	if mu.window(ctx, "Demo Window", {0, 0, 300, 450}, opts) {
-		if .ACTIVE in mu.header(ctx, "Window Info") {
-			win := mu.get_current_container(ctx)
-			mu.layout_row(ctx, {54, -1}, 0)
-			mu.label(ctx, "Position:")
-			mu.label(ctx, fmt.tprintf("%d, %d", win.rect.x, win.rect.y))
-			mu.label(ctx, "Size:")
-			mu.label(ctx, fmt.tprintf("%d, %d", win.rect.w, win.rect.h))
-		}
-
-		if .ACTIVE in mu.header(ctx, "Window Options") {
-			mu.layout_row(ctx, {120, 120, 120}, 0)
-			for opt in mu.Opt {
-				state := opt in opts
-				if .CHANGE in mu.checkbox(ctx, fmt.tprintf("%v", opt), &state) {
-					if state {
-						opts += {opt}
-					} else {
-						opts -= {opt}
-					}
-				}
-			}
-		}
-
-		if .ACTIVE in mu.header(ctx, "Test Buttons", {.EXPANDED}) {
-			mu.layout_row(ctx, {86, -110, -1})
-			mu.label(ctx, "Test buttons 1:")
-			if .SUBMIT in mu.button(ctx, "Button 1") {write_log("Pressed button 1")}
-			if .SUBMIT in mu.button(ctx, "Button 2") {write_log("Pressed button 2")}
-			mu.label(ctx, "Test buttons 2:")
-			if .SUBMIT in mu.button(ctx, "Button 3") {write_log("Pressed button 3")}
-			if .SUBMIT in mu.button(ctx, "Button 4") {write_log("Pressed button 4")}
-		}
-
-		if .ACTIVE in mu.header(ctx, "Tree and Text", {.EXPANDED}) {
-			mu.layout_row(ctx, {140, -1})
-			mu.layout_begin_column(ctx)
-			if .ACTIVE in mu.treenode(ctx, "Test 1") {
-				if .ACTIVE in mu.treenode(ctx, "Test 1a") {
-					mu.label(ctx, "Hello")
-					mu.label(ctx, "world")
-				}
-				if .ACTIVE in mu.treenode(ctx, "Test 1b") {
-					if .SUBMIT in mu.button(ctx, "Button 1") {write_log("Pressed button 1")}
-					if .SUBMIT in mu.button(ctx, "Button 2") {write_log("Pressed button 2")}
-				}
-			}
-			if .ACTIVE in mu.treenode(ctx, "Test 2") {
-				mu.layout_row(ctx, {53, 53})
-				if .SUBMIT in mu.button(ctx, "Button 3") {write_log("Pressed button 3")}
-				if .SUBMIT in mu.button(ctx, "Button 4") {write_log("Pressed button 4")}
-				if .SUBMIT in mu.button(ctx, "Button 5") {write_log("Pressed button 5")}
-				if .SUBMIT in mu.button(ctx, "Button 6") {write_log("Pressed button 6")}
-			}
-			if .ACTIVE in mu.treenode(ctx, "Test 3") {
-				@(static) checks := [3]bool{true, false, true}
-				mu.checkbox(ctx, "Checkbox 1", &checks[0])
-				mu.checkbox(ctx, "Checkbox 2", &checks[1])
-				mu.checkbox(ctx, "Checkbox 3", &checks[2])
-
-			}
-			mu.layout_end_column(ctx)
-
-			mu.layout_begin_column(ctx)
-			mu.layout_row(ctx, {-1})
-			mu.text(
-				ctx,
-				"Lorem ipsum dolor sit amet, consectetur adipiscing " +
-				"elit. Maecenas lacinia, sem eu lacinia molestie, mi risus faucibus " +
-				"ipsum, eu varius magna felis a nulla.",
-			)
-			mu.layout_end_column(ctx)
-		}
-
-		if .ACTIVE in mu.header(ctx, "Background Colour", {.EXPANDED}) {
-			mu.layout_row(ctx, {-78, -1}, 68)
-			mu.layout_begin_column(ctx)
-			{
-				mu.layout_row(ctx, {46, -1}, 0)
-				mu.label(ctx, "Red:");u8_slider(ctx, &state.bg.r, 0, 255)
-				mu.label(ctx, "Green:");u8_slider(ctx, &state.bg.g, 0, 255)
-				mu.label(ctx, "Blue:");u8_slider(ctx, &state.bg.b, 0, 255)
-			}
-			mu.layout_end_column(ctx)
-
-			r := mu.layout_next(ctx)
-			mu.draw_rect(ctx, r, state.bg)
-			mu.draw_box(ctx, mu.expand_rect(r, 1), ctx.style.colors[.BORDER])
-			mu.draw_control_text(
-				ctx,
-				fmt.tprintf("#%02x%02x%02x", state.bg.r, state.bg.g, state.bg.b),
-				r,
-				.TEXT,
-				{.ALIGN_CENTER},
-			)
-		}
-	}
-
-	if mu.window(ctx, "Style Window", {350, 250, 300, 240}, opts) {
-		@(static) colors := [mu.Color_Type]string {
-			.TEXT         = "text",
-			.BORDER       = "border",
-			.WINDOW_BG    = "window bg",
-			.TITLE_BG     = "title bg",
-			.TITLE_TEXT   = "title text",
-			.PANEL_BG     = "panel bg",
-			.BUTTON       = "button",
-			.BUTTON_HOVER = "button hover",
-			.BUTTON_FOCUS = "button focus",
-			.BASE         = "base",
-			.BASE_HOVER   = "base hover",
-			.BASE_FOCUS   = "base focus",
-			.SCROLL_BASE  = "scroll base",
-			.SCROLL_THUMB = "scroll thumb",
-			.SELECTION_BG = "selection bg",
-		}
-
-		sw := i32(f32(mu.get_current_container(ctx).body.w) * 0.14)
-		mu.layout_row(ctx, {80, sw, sw, sw, sw, -1})
-		for label, col in colors {
-			mu.label(ctx, label)
-			u8_slider(ctx, &ctx.style.colors[col].r, 0, 255)
-			u8_slider(ctx, &ctx.style.colors[col].g, 0, 255)
-			u8_slider(ctx, &ctx.style.colors[col].b, 0, 255)
-			u8_slider(ctx, &ctx.style.colors[col].a, 0, 255)
-			mu.draw_rect(ctx, mu.layout_next(ctx), ctx.style.colors[col])
-		}
-	}
-
-	if mu.window(ctx, "Style Window 2", {350, 250, 300, 240}, opts) {
-		@(static) colors := [mu.Color_Type]string {
-			.TEXT         = "text",
-			.BORDER       = "border",
-			.WINDOW_BG    = "window bg",
-			.TITLE_BG     = "title bg",
-			.TITLE_TEXT   = "title text",
-			.PANEL_BG     = "panel bg",
-			.BUTTON       = "button",
-			.BUTTON_HOVER = "button hover",
-			.BUTTON_FOCUS = "button focus",
-			.BASE         = "base",
-			.BASE_HOVER   = "base hover",
-			.BASE_FOCUS   = "base focus",
-			.SCROLL_BASE  = "scroll base",
-			.SCROLL_THUMB = "scroll thumb",
-			.SELECTION_BG = "selection bg",
-		}
-
-		sw := i32(f32(mu.get_current_container(ctx).body.w) * 0.14)
-		mu.layout_row(ctx, {80, sw, sw, sw, sw, -1})
-		for label, col in colors {
-			mu.label(ctx, label)
-			u8_slider(ctx, &ctx.style.colors[col].r, 0, 255)
-			u8_slider(ctx, &ctx.style.colors[col].g, 0, 255)
-			u8_slider(ctx, &ctx.style.colors[col].b, 0, 255)
-			u8_slider(ctx, &ctx.style.colors[col].a, 0, 255)
-			mu.draw_rect(ctx, mu.layout_next(ctx), ctx.style.colors[col])
-		}
-	}
-
-	mu.layout_row(ctx, {-1}, -1)
-	if mu.window(ctx, "Log Window", {350, 40, 300, 200}, opts) {
-		mu.layout_row(ctx, {-1}, -28)
-		mu.begin_panel(ctx, "Log")
-		mu.layout_row(ctx, {-1}, -1)
-		mu.text(ctx, read_log())
-		if state.log_buf_updated {
-			panel := mu.get_current_container(ctx)
-			panel.scroll.y = panel.content_size.y
-			state.log_buf_updated = false
-		}
-		mu.end_panel(ctx)
-
-		@(static) buf: [128]byte
-		@(static) buf_len: int
-		submitted := false
-		mu.layout_row(ctx, {-70, -1})
-		if .SUBMIT in mu.textbox(ctx, buf[:], &buf_len) {
-			mu.set_focus(ctx, ctx.last_id)
-			submitted = true
-		}
-		if .SUBMIT in mu.button(ctx, "Submit") {
-			submitted = true
-		}
-		if submitted {
-			write_log(string(buf[:buf_len]))
-			buf_len = 0
-		}
-	}
-}
-
 

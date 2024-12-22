@@ -14,7 +14,8 @@ import "core:strings"
 Renderer :: struct {
 	width:         i32,
 	height:        i32,
-	screenTexture: rl.RenderTexture2D,
+	screenTexture: rl.Texture2D,
+	screenBuffer:  [dynamic]vec4,
 	depthBuffer:   [dynamic]f32,
 	depthFipped:   bool,
 	depthTest:     bool,
@@ -121,6 +122,7 @@ renderer_init :: proc(width, height: i32) {
 	renderer.depthFipped = true
 	renderer.backfaceCull = true
 	renderer.depthBuffer = make_dynamic_array_len([dynamic]f32, width * height)
+	renderer.screenBuffer = make_dynamic_array_len([dynamic]vec4, width * height)
 }
 
 mesh_render :: proc(
@@ -298,9 +300,23 @@ tri_render_single_line :: proc(cmd: TriRenderCmd, x1: int, x2: int, y: int) {
 		cTex *=
 			cmd.material.ambient + math.max(linalg.dot(cmd.normal, light_dir), 0) * light_intensity
 
-		c := linalg.saturate(cTex) * {255, 255, 255, 255}
-		rl.DrawPixelV({p.x, p.y}, {u8(c.r), u8(c.g), u8(c.b), 255})
+		c := linalg.saturate(cTex)
+		c.a = 1
+
+		draw_screen_pixel(p, c)
+		// c := linalg.saturate(cTex) * {255, 255, 255, 255}
+		// rl.DrawPixelV({p.x, p.y}, {u8(c.r), u8(c.g), u8(c.b), 255})
+
 	}
+}
+
+draw_screen_pixel :: proc(pos:vec3, pixel:vec4 ) {
+	x := cast(u32)pos.x
+	y := cast(u32)pos.y
+
+	w := cast(u32)renderer.width
+
+	renderer.screenBuffer[ y * w + x] = pixel
 }
 
 mat_sample_texture :: proc(mat: Material, at: vec2) -> vec4 {
@@ -318,6 +334,7 @@ mat_sample_texture :: proc(mat: Material, at: vec2) -> vec4 {
 render_begin :: proc() {
 	clear(&renderer.commands)
 	// renderer.depthFipped = !renderer.depthFipped
+	slice.fill(renderer.screenBuffer[:], 0.0)
 	slice.fill(renderer.depthBuffer[:], 0.0)
 }
 
@@ -328,18 +345,17 @@ render_end :: proc() {
 }
 
 render_debug_ui :: proc(dt: f32, window: bool = true) {
-	ctx := &state.mu_ctx
 
-	if window {
-		ui.window(ctx, "Renderer", {renderer.width + 20, 20, 300, 450}, {.NO_CLOSE})
-	}
+	// if window {
+	// 	ui.window(ctx, "Renderer", {renderer.width + 20, 20, 300, 450}, {.NO_CLOSE})
+	// }
 
-	if .ACTIVE in ui.header(ctx, "Info") {
-		win := ui.get_current_container(ctx)
-		ui.layout_row(ctx, {54, -1}, 0)
-		ui.label(ctx, "Size:")
-		ui.label(ctx, fmt.tprintf("%dx%d", renderer.width, renderer.height))
-	}
+	// if .ACTIVE in ui.header(ctx, "Info") {
+	// 	win := ui.get_current_container(ctx)
+	// 	ui.layout_row(ctx, {54, -1}, 0)
+	// 	ui.label(ctx, "Size:")
+	// 	ui.label(ctx, fmt.tprintf("%dx%d", renderer.width, renderer.height))
+	// }
 
 	// if .ACTIVE in ui.header(ctx, "Window Options") {
 	// 	ui.layout_row(ctx, {120, 120, 120}, 0)
@@ -365,10 +381,10 @@ render_debug_ui :: proc(dt: f32, window: bool = true) {
 	// 	if .SUBMIT in ui.button(ctx, "Button 4") {write_log("Pressed button 4")}
 	// }
 
-	if .ACTIVE in ui.header(ctx, "Commands", {.EXPANDED}) {
-		ui.checkbox(ctx, "Depth Test", &renderer.depthTest)
-		ui.checkbox(ctx, "Backface", &renderer.backfaceCull)
-		ui.layout_row(ctx, {140, -1})
+	// if .ACTIVE in ui.header(ctx, "Commands", {.EXPANDED}) {
+	// 	ui.checkbox(ctx, "Depth Test", &renderer.depthTest)
+	// 	ui.checkbox(ctx, "Backface", &renderer.backfaceCull)
+	// 	ui.layout_row(ctx, {140, -1})
 		// ui.layout_begin_column(ctx)
 
 		// for cmd in renderer.commands {
@@ -399,5 +415,5 @@ render_debug_ui :: proc(dt: f32, window: bool = true) {
 		// 	}
 		// }
 
-	}
+	// }
 }

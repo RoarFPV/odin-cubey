@@ -1,9 +1,9 @@
 package cubey
 
 
+import "vendor:cgltf"
 import rl "vendor:raylib"
 import rlgl "vendor:raylib/rlgl"
-import "vendor:cgltf"
 
 
 import "core:fmt"
@@ -75,7 +75,7 @@ scaled_width :: width * inv_unit_scale
 scaled_height :: height * inv_unit_scale
 
 
-activeMesh: ^Mesh = &mesh_triangle
+activeMesh: ^Mesh = &mesh_cube
 material: Material
 
 // Entities
@@ -112,7 +112,7 @@ remove_entity :: proc(e: ^Entity) {
 }
 
 view_pos := vec3{0, -0.5, -3}
-rotation := false
+rotation := true
 game_update_input :: proc(dt: f32) {
 	if paused {
 		return
@@ -136,6 +136,12 @@ camera := rl.Camera2D {
 }
 
 game_update_state :: proc(dt: f32) {
+
+	rl.BeginDrawing()
+	rl.ClearBackground(color(0))
+	defer rl.EndDrawing()
+
+
 	switch game_state {
 
 	case .Reset:
@@ -159,28 +165,24 @@ game_update_state :: proc(dt: f32) {
 		game_state = .Play
 
 	case .MainMenu:
-		ui_update()
+		ui_update_begin(dt)
 		game_render()
 		menu_update()
 		ui_update_end()
-		ui_render()
 
 	case .Play:
-		ui_update()
+		ui_update_begin(dt)
 		game_update_input(dt)
-		game_debug_ui(dt)
-		ui_update_end()
 		game_render()
-		ui_render()
+		game_debug_ui(dt)
+
+		ui_update_end()
 
 	case .GameOver:
-		ui_update()
+		ui_update_begin(dt)
 		game_render()
 		game_render_score()
 		ui_update_end()
-
-		ui_render()
-
 	}
 }
 
@@ -204,26 +206,33 @@ game_render :: proc() {
 	v := linalg.matrix4_translate_f32(view_pos.xyz)
 
 	if !paused {
-		rl.BeginTextureMode(renderer.screenTexture)
-		defer rl.EndTextureMode()
-		rl.ClearBackground(color(0))
+		// rl.BeginTextureMode(renderer.screenTexture)
+		// defer rl.EndTextureMode()
+		// rl.ClearBackground(color(0))
 		render_begin()
 		defer render_end()
 
 		mesh_render(activeMesh, material, &model_mat, &v, &proj, true)
+
+		rl.DrawFPS(100, 100)
 	}
 
 
 	{
+	
+		rl.UpdateTexture(renderer.screenTexture, raw_data(renderer.screenBuffer))
+		// rl.BeginTextureMode(renderer.screenTextureFlipped)
+		// defer rl.EndTextureMode()
+		// rl.DrawTexturePro(
+		// 	texture = renderer.screenTexture.texture,
+		// 	source = {0, 0, f32(renderer.width), f32(renderer.height)},
+		// 	dest = {0, 0, auto_cast renderer.width, auto_cast renderer.height},
+		// 	origin = {0, 0},
+		// 	rotation = 0,
+		// 	tint = rl.WHITE,
+		// )
 
-		rl.DrawTexturePro(
-			texture = renderer.screenTexture.texture,
-			source = {0, 0, f32(renderer.width), -f32(renderer.height)},
-			dest = {0, 0, width, height},
-			origin = {0, 0},
-			rotation = 0,
-			tint = rl.WHITE,
-		)
+		
 	}
 }
 
@@ -234,13 +243,16 @@ game_render_score :: proc() {
 
 game_init :: proc() {
 	renderer_init(640, 400)
-	renderer.screenTexture = rl.LoadRenderTexture(renderer.width, renderer.height)
+
+	screen := rl.GenImageColor(renderer.width, renderer.height, rl.BLACK)
+	rl.ImageFormat(&screen, .UNCOMPRESSED_R32G32B32A32)
+	renderer.screenTexture = rl.LoadTextureFromImage(screen)
 
 	material.name = "material"
 	material.texture = rl.LoadImage("assets/grass.png")
 	material.ambient = 0.2
 
-	options : cgltf.options
+	options: cgltf.options
 
 	data, result := cgltf.parse_file(options, "assets/models/BoxTextured/glTF/BoxTextured.gltf")
 	if result != .success {
@@ -259,24 +271,29 @@ game_init :: proc() {
 
 			for prim in mesh.primitives {
 				fmt.printfln("    - {}", prim.type)
-				
+
 
 				for attr in prim.attributes {
 
 					data := attr.data
 					fmt.printfln("      - {}:{}:[{}]", attr.type, attr.name, attr.index)
-					fmt.printfln("        - data:{}:{}:{}", data.name, data.component_type, data.type)
+					fmt.printfln(
+						"        - data:{}:{}:{}",
+						data.name,
+						data.component_type,
+						data.type,
+					)
 					fmt.printfln("          offset:{}", data.offset)
 					fmt.printfln("          count:{}", data.count)
 					fmt.printfln("          stride:{}", data.stride)
-					
+
 				}
 			}
 
 
 		}
 	}
-	
+
 	defer cgltf.free(data)
 
 }
@@ -287,43 +304,45 @@ game_check_end :: proc() {
 }
 
 game_debug_ui :: proc(dt: f32, window: bool = true) {
-	ctx := &state.mu_ctx
-	if window {
-		if !ui.begin_window(ctx, "Game", {20, 20, 300, 450}, {.NO_CLOSE}) {
-			return
-		}
+
+	COLOR_LIGHT :: ui.Color{244, 235, 230, 255}
+
+	//ui.SetDebugModeEnabled(true)
+
+
+	if ui.UI(
+		ui.ID("OuterContainer"),
+		ui.Layout({
+			layoutDirection = .TOP_TO_BOTTOM, 
+			childAlignment = {y=.TOP} ,
+			sizing = {ui.SizingGrow({}), ui.SizingGrow({})}
+		},)
+	) {
+
+		if ui.UI(
+			ui.ID("Menu"),
+			ui.Layout({
+				layoutDirection = .TOP_TO_BOTTOM, 
+				sizing = {ui.SizingGrow({}), ui.SizingFixed(15)}
+			}),
+			ui.Rectangle({ color = COLOR_LIGHT }),
+		) {}
+
+
+		if ui.UI(
+			ui.ID("RenderTarget"),
+			ui.Layout({
+				layoutDirection = .TOP_TO_BOTTOM, 
+				sizing =  {ui.SizingGrow({}), ui.SizingGrow({})},
+
+			}),
+			ui.Image(
+				{
+					imageData = &renderer.screenTexture,
+					sourceDimensions = {cast(f32)renderer.width, cast(f32)renderer.height},
+				},
+			),
+		) {}
 	}
 
-	if .ACTIVE in ui.header(ctx, "Meshes", {.EXPANDED}) {
-		ui.layout_row(ctx, {100, 100}, 0)
-		if .SUBMIT in ui.button(ctx, "triangle") {
-			activeMesh = &mesh_triangle
-		} else if .SUBMIT in ui.button(ctx, "cube") {
-			activeMesh = &mesh_cube
-		}
-
-		if .SUBMIT in ui.button(ctx, "rotation") {
-			rotation = !rotation
-		}
-	}
-
-
-	if .ACTIVE in ui.header(ctx, "Renderer", {.EXPANDED}) {
-
-		if .SUBMIT in ui.button(ctx, paused ? "Play" : "Pause") {
-			if !paused {
-				rl.BeginTextureMode(renderer.screenTexture)
-				defer rl.EndTextureMode()
-				rl.ClearBackground(color(0))
-			}
-			paused = !paused
-		}
-
-		render_debug_ui(dt, false)
-	}
-
-
-	if window {
-		ui.end_window(ctx)
-	}
 }

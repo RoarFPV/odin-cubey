@@ -5,6 +5,7 @@ import rlgl "vendor:raylib/rlgl"
 
 main :: proc() {
 
+	rl.SetConfigFlags({.VSYNC_HINT, .WINDOW_RESIZABLE, .WINDOW_HIGHDPI,})
 	rl.InitWindow(width, height, "cubey")
 	defer rl.CloseWindow()
 
@@ -13,13 +14,11 @@ main :: proc() {
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
 
-		rl.BeginDrawing()
-		rl.ClearBackground(color(0))
-		defer rl.EndDrawing()
+		
 
 		game_update_state(dt)
 
-		rl.DrawFPS(rl.GetScreenWidth() - 100, 10)
+		
 
 		free_all(context.temp_allocator)
 	}
