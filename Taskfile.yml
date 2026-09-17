@@ -5,19 +5,70 @@ vars:
   # PACKAGE: engine
 
 tasks:
+  
   clean:
     cmds:
+      - rm -rf .build/
       - rmdir .build/
   debug:
     aliases: [default]
     sources:
       - ./**/*.odin
     generates:
-      - ./{{.NAME}}.debug.exe
-      # - ./{{.NAME}}
+      - ./.build/{{.NAME}}.{{.TASK}}.exe
     cmds:
-      # - odin build . -out:"{{.NAME}}"
       - mkdir -p .build
-      - odin build . -debug -out:".build/{{.NAME}}.debug.exe"
-      # - nix-shell ../../shell.nix --run 'autoPatchelf {{.NAME}}.elf'
-      # - nix-shell ../../shell.nix --run 'patchelf {{.NAME}}.elf --add-needed libvulkan.so.1'
+      # - odin build src/ -debug -o:size -out:".build/{{.NAME}}.{{.TASK}}.exe"
+      - odin build src/ -debug -out:".build/{{.NAME}}.{{.TASK}}.exe"
+
+  debug-tile:
+    sources:
+      - ./**/*.odin
+    generates:
+      - ./.build/{{.NAME}}.{{.TASK}}.exe
+    cmds:
+      - mkdir -p .build
+      - odin build src/ -debug -define:RENDER_TILED=true -out:".build/{{.NAME}}.{{.TASK}}.exe"
+  
+  release:
+    aliases:
+      - rel
+    sources:
+      - ./**/*.odin
+    generates:
+      - ./.build/{{.NAME}}.{{.TASK}}.exe
+    cmds:
+      - mkdir -p .build
+      - odin build src/ -o:speed -out:".build/{{.NAME}}.{{.TASK}}.exe"
+
+  profile:
+    aliases:
+      - prof
+    sources:
+      - ./**/*.odin
+    generates:
+      - ./.build/{{.NAME}}.{{.TASK}}.exe
+    cmds:
+      - mkdir -p .build
+      - odin build src/ -o:speed -out:".build/{{.NAME}}.{{.TASK}}.exe" #-define:TRACY_ENABLE=true
+  
+  tracy:
+    aliases:
+      - prof
+    sources:
+      - ./**/*.odin
+    generates:
+      - ./.build/{{.NAME}}.{{.TASK}}.exe
+    cmds:
+      - mkdir -p .build
+      - odin build src/ -o:size -out:".build/{{.NAME}}.{{.TASK}}.exe" -debug -define:TRACY_ENABLE=true
+      - .build/{{.NAME}}.{{.TASK}}.exe && tracy
+      # - odin build src/ -o:speed -out:".build/{{.NAME}}.{{.TASK}}.exe" -define:TRACY_ENABLE=true
+
+  run:*:
+    vars:
+      MODE: "{{index .MATCH 0}}"
+    deps:
+      - task: '{{.MODE}}'
+    cmds:
+      - .build/{{.NAME}}.{{.MODE}}.exe

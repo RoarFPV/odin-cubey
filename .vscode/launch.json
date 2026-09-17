@@ -4,27 +4,25 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-    
-
+        
         {
-            "type": "gdb",
+            "type": "lldb",
             "request": "launch",
-            "name": "GDB Launch Program",
-            "target": "${workspaceFolder}/.build/cubey.debug.exe",
+            "name": "Launch",
+            "program": "${workspaceFolder}/.build/cubey.debug.exe",
+            "args": [],
             "cwd": "${workspaceFolder}",
-            "valuesFormatting": "parseText",
-            "preLaunchTask": "Build: Boxy"
+            "preLaunchTask": "Build: Cubey"
         },
-    
         
         {
             "type": "cppvsdbg",
             "request": "launch",
-            "name": "Windows Debug Boxy",
+            "name": "Windows Debug Cubey",
             "program": "${workspaceFolder}/.build/cubey.debug.exe",
             "args": [],
             "cwd": "${workspaceFolder}",
-            "preLaunchTask": "Build: Boxy"
+            "preLaunchTask": "Build: Cubey"
         }
     ]
 }

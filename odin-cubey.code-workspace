@@ -11,7 +11,13 @@
 		},
 		{
 			"path": "../../../cgltf"
+		},
+		{
+			"path": "../../../cpp/projects/cpengine"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"mesonbuild.selectRootDir": false,
+	
+	}
 }

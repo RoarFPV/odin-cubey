@@ -8,8 +8,22 @@
 				"isDefault": true
 			},
 			"problemMatcher": [],
-			"label": "Build: Boxy",
-			"command": "task",
+			"label": "Build: Cubey",
+			"command": "go-task debug",
+			"options" : {
+				"cwd": "${workspaceFolder}"
+			} 
+		},
+
+		{
+			"type":"shell",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": [],
+			"label": "Build: Cubey Tiled",
+			"command": "go-task debug-tile",
 			"options" : {
 				"cwd": "${workspaceFolder}"
 			} 
